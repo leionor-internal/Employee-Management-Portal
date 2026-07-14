@@ -1,13 +1,14 @@
 pipeline {
     agent any
 
-    tools {
-        maven 'Maven'
-    }
-
     environment {
         DOCKER_IMAGE = "likithus/employee-app"
         IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
     }
 
     stages {
@@ -18,21 +19,15 @@ pipeline {
             }
         }
 
-        stage('Compile') {
+        stage('Run Unit Tests') {
             steps {
-                sh 'mvn clean compile'
-            }
-        }
-
-        stage('Unit Test') {
-            steps {
-                sh 'mvn test'
-            }
-        }
-
-        stage('Package') {
-            steps {
-                sh 'mvn package -DskipTests'
+                sh '''
+                    docker run --rm \
+                        -v "$WORKSPACE":/app \
+                        -w /app \
+                        maven:3.9.9-eclipse-temurin-17 \
+                        mvn clean test
+                '''
             }
         }
 
@@ -40,13 +35,13 @@ pipeline {
             steps {
                 sh '''
                     docker build \
-                    -t ${DOCKER_IMAGE}:${IMAGE_TAG} \
-                    -t ${DOCKER_IMAGE}:latest .
+                        -t ${DOCKER_IMAGE}:${IMAGE_TAG} \
+                        -t ${DOCKER_IMAGE}:latest .
                 '''
             }
         }
 
-        stage('Docker Push') {
+        stage('Push Docker Image') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -57,26 +52,24 @@ pipeline {
                 ]) {
                     sh '''
                         echo "$DOCKER_PASS" | docker login \
-                        -u "$DOCKER_USER" --password-stdin
+                            -u "$DOCKER_USER" \
+                            --password-stdin
 
                         docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
                         docker push ${DOCKER_IMAGE}:latest
+
+                        docker logout
                     '''
                 }
             }
         }
 
-        stage('Remove Old Container') {
-            steps {
-                sh 'docker compose down || true'
-            }
-        }
-
-        stage('Run New Container') {
+        stage('Deploy Application') {
             steps {
                 sh '''
+                    docker compose down || true
                     docker compose pull
-                    docker compose up -d --no-build
+                    docker compose up -d
                 '''
             }
         }
@@ -84,7 +77,9 @@ pipeline {
         stage('Health Check') {
             steps {
                 sh '''
+                    echo "Waiting for application to start..."
                     sleep 20
+
                     curl -f http://localhost:8085/employees
                 '''
             }
@@ -92,16 +87,23 @@ pipeline {
     }
 
     post {
+
         success {
-            echo 'Employee Management Pipeline SUCCESS!'
+            echo '======================================'
+            echo 'Pipeline completed successfully.'
+            echo "Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+            echo '======================================'
         }
 
         failure {
-            echo 'Pipeline FAILED. Check logs.'
+            echo '======================================'
+            echo 'Pipeline failed.'
+            echo 'Check the build logs.'
+            echo '======================================'
         }
 
         always {
-            echo 'Pipeline finished.'
+            cleanWs()
         }
     }
 }
