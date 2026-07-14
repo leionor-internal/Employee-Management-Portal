@@ -19,10 +19,10 @@ services:
       retries: 10
 
   employee-app:
-    image: akashms54/employee-app:latest
+    image: likithus/employee-app:latest
     container_name: employee-app
     ports:
-      - "8085:8080"
+      - "8085:8085"
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/employee_db
       SPRING_DATASOURCE_USERNAME: admin
